@@ -17,9 +17,10 @@ enum DeclarationTypes {
     Entity,
 };
 
-std::map<std::string, std::set<DeclarationTypes>> global_declaration_table;
 
 class GlobalDeclarationListener : public vhdlBaseListener {
+public:
+    std::map<std::string, std::set<DeclarationTypes>> global_declaration_table;
 
     void exitEntity_declaration(vhdlParser::Entity_declarationContext * ctx) override {
         global_declaration_table[ctx->identifier().back()->getText()].insert(Entity);
@@ -46,11 +47,27 @@ class GlobalDeclarationListener : public vhdlBaseListener {
 };
 
 class DeclaredBeforeUsedListener : public vhdlBaseListener {
+public:
+    GlobalDeclarationListener* gdl;
+
+    explicit DeclaredBeforeUsedListener(GlobalDeclarationListener* gdl) : gdl(gdl) {}
+
     void exitArchitecture_body(vhdlParser::Architecture_bodyContext * ctx) override {
-        if (!global_declaration_table[ctx->identifier()[1]->getText()].count(Entity)) {
+        if (!gdl->global_declaration_table[ctx->identifier()[1]->getText()].count(Entity)) {
             std::cerr << "Line " << ctx->start->getLine() << ": No Entity " << ctx->identifier()[1]->getText() << std::endl;
         }
     }
+
+    void exitComponent_declaration(vhdlParser::Component_declarationContext * ctx) override { //components are for entities from different files. This does of course not work
+          if (!gdl->global_declaration_table[ctx->identifier()[0]->getText()].count(Entity)) {
+              std::cerr << "Line " << ctx->start->getLine() << ": No Entity " << ctx->identifier()[0]->getText() << std::endl;
+          }
+    }
+};
+
+
+class DeclareUseScopedListener : public vhdlBaseListener {
+
 };
 
 void printTree(antlr4::tree::ParseTree *tree, const std::string &indent = "", bool last = true) {
@@ -72,15 +89,16 @@ int main() {
         std::cout << "opened" << std::endl;
     }
 
+
     // First pass - fill declaration table
+    auto L1 = new GlobalDeclarationListener();
     {
         std::ifstream stream("../input.txt");
         ANTLRInputStream input(stream);
         vhdlLexer lexer(&input);
         CommonTokenStream tokens(&lexer);
         vhdlParser parser(&tokens);
-        auto L = new GlobalDeclarationListener();
-        parser.addParseListener(L);
+        parser.addParseListener(L1);
         tree::ParseTree *tree = parser.design_file();
     }
 
@@ -91,7 +109,7 @@ int main() {
         vhdlLexer lexer(&input);
         CommonTokenStream tokens(&lexer);
         vhdlParser parser(&tokens);
-        auto L = new DeclaredBeforeUsedListener();
+        auto L = new DeclaredBeforeUsedListener(L1);
         parser.addParseListener(L);
         tree::ParseTree *tree = parser.design_file();
     }

@@ -10,7 +10,7 @@ entity Nand_Gate is
   );
 end Nand_Gate;
 
-architecture rtl of Nand_Gates is
+architecture rtl of Nand_Gate is
   begin
     z <= x nand y;
 end architecture rtl;
