@@ -24,22 +24,31 @@ class GlobalDeclarationListener : public vhdlBaseListener {
     void exitEntity_declaration(vhdlParser::Entity_declarationContext * ctx) override {
         global_declaration_table[ctx->identifier().back()->getText()].insert(Entity);
         if (ctx->identifier()[0]->getText() != ctx->identifier().back()->getText()) {
-            std::cerr << "Start and End Identifier aren't matching. Start is " << ctx->identifier()[0]->getText() << " and End ist " << ctx->identifier().back()->getText() << std::endl;
+            std::cerr << "Line " << ctx->start->getLine() << ": Start and End Identifier aren't matching. Start is " << ctx->identifier()[0]->getText() << " and End ist " << ctx->identifier().back()->getText() << std::endl;
         }
     }
 
     void exitArchitecture_body(vhdlParser::Architecture_bodyContext * ctx) override {
         if (ctx->identifier()[0]->getText() != ctx->identifier().back()->getText()) {
-            std::cerr << "Start and End Identifier aren't matching. Start is " << ctx->identifier()[0]->getText() << " and End ist " << ctx->identifier().back()->getText() << std::endl;
+            std::cerr << "Line " << ctx->start->getLine() << ": Start and End Identifier aren't matching. Start is " << ctx->identifier()[0]->getText() << " and End ist " << ctx->identifier().back()->getText() << std::endl;
         }
     }
+
+    void exitComponent_declaration(vhdlParser::Component_declarationContext * ctx) override {
+        if (ctx->identifier().size() > 1) {
+            if (ctx->identifier()[0]->getText() != ctx->identifier().back()->getText()) {
+            std::cerr << "Line " << ctx->start->getLine() << ": Start and End Identifier aren't matching. Start is " << ctx->identifier()[0]->getText() << " and End ist " << ctx->identifier().back()->getText() << std::endl;
+            }
+        }
+    }
+
 
 };
 
 class DeclaredBeforeUsedListener : public vhdlBaseListener {
     void exitArchitecture_body(vhdlParser::Architecture_bodyContext * ctx) override {
         if (!global_declaration_table[ctx->identifier()[1]->getText()].count(Entity)) {
-            std::cerr << "No Entity " << ctx->identifier()[1]->getText() << std::endl;
+            std::cerr << "Line " << ctx->start->getLine() << ": No Entity " << ctx->identifier()[1]->getText() << std::endl;
         }
     }
 };
