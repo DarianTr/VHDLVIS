@@ -2,26 +2,15 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
-package add_pkg is
+entity Nand_Gate is
+  port (
+    x   : in  std_logic;
+    y   : in  std_logic;
+    z   : out std_logic
+  );
+end Nand_Gate;
 
-  procedure add_unsigned (
-    signal a : in  std_logic_vector;
-    signal b : in  std_logic_vector;
-    signal z : out std_logic_vector
-    );
-
-end add_pkg;
-
-package body add_pkg is
-
-  procedure add_unsigned (
-    signal a : in  std_logic_vector;
-    signal b : in  std_logic_vector;
-    signal z : out std_logic_vector
-    )
-  is
+architecture rtl of Nand_Gate is
   begin
-    z <= std_logic_vector(unsigned(a) + unsigned(b));
-  end add_unsigned;
-
-end add_pkg;
+    z <= x nand y;
+end architecture rtl;
