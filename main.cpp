@@ -18,7 +18,7 @@ enum DeclarationTypes {
 };
 
 
-class GlobalDeclarationListener : public vhdlBaseListener {
+class GlobalDeclarationListener final : public vhdlBaseListener {
 public:
     std::map<std::string, std::set<DeclarationTypes>> global_declaration_table;
 
@@ -46,9 +46,8 @@ public:
 
 };
 
-class DeclaredBeforeUsedListener : public vhdlBaseListener {
-public:
-    GlobalDeclarationListener* gdl;
+class DeclaredBeforeUsedListener final : public vhdlBaseListener {
+public: GlobalDeclarationListener* gdl;
 
     explicit DeclaredBeforeUsedListener(GlobalDeclarationListener* gdl) : gdl(gdl) {}
 
@@ -66,32 +65,112 @@ public:
 };
 
 
-class DeclareUseScopedListener : public vhdlBaseListener {
+class DeclarationPortsListener final : public vhdlBaseListener {
+public:
+    std::map<std::string, std::set<std::string>> entity_to_identifiers;
+private:
+    std::string current_entity;
+
+    void enterEntity_declaration(vhdlParser::Entity_declarationContext * ctx) override {
+        current_entity = (ctx->identifier().size()) ? ctx->identifier()[0]->getText() : "";
+    }
+
+    void exitEntity_declaration(vhdlParser::Entity_declarationContext * ctx) override {
+      current_entity = "";
+    }
+
+    void exitPort_clause(vhdlParser::Port_clauseContext * ctx) override { //port names
+        for (const auto & declaration: ctx->port_list()->interface_port_list()->interface_port_declaration()) {
+            for (const auto & iden: declaration->identifier_list()->identifier()) {
+                entity_to_identifiers[current_entity].insert(iden->getText());
+            }
+        }
+    }
 
 };
 
-void printTree(antlr4::tree::ParseTree *tree, const std::string &indent = "", bool last = true) {
+class DeclareUseScopedListener final : public vhdlBaseListener {
+public:
+    DeclarationPortsListener * dpl;
+    explicit DeclareUseScopedListener(DeclarationPortsListener* dpl) : dpl(dpl) {};
+private:
+    bool inside_statement = false;
+
+    std::string current_entity;
+
+    void exitArchitecture_body(vhdlParser::Architecture_bodyContext * ctx) override {
+        current_entity = "";
+    }
+
+    void enterArchitecture_body(vhdlParser::Architecture_bodyContext * ctx) override {
+        current_entity = (ctx->identifier().size()) ? ctx->identifier()[0]->getText() : "";
+    }
+
+    void exitArchitecture_declarative_part(vhdlParser::Architecture_declarative_partContext * ctx) override {
+        for (const auto &i: ctx->block_declarative_item()) {
+            for (const auto identifier: i->signal_declaration()->identifier_list()->identifier()) {
+                dpl->entity_to_identifiers[current_entity].insert(identifier->getText());
+            }
+        }
+    }
+
+    void enterConcurrent_signal_assignment_statement(vhdlParser::Concurrent_signal_assignment_statementContext * ctx) override {
+        inside_statement = true;
+        std::cout << "start" << std::endl;
+    }
+    void exitConcurrent_signal_assignment_statement(vhdlParser::Concurrent_signal_assignment_statementContext * ctx) override {
+        inside_statement = false;
+        std::cout << "end" << std::endl;
+    }
+
+    void exitIdentifier(vhdlParser::IdentifierContext *ctx) override {
+       std::cout << inside_statement << std::endl;
+       if (inside_statement) {
+           if (!dpl->entity_to_identifiers[current_entity].count(ctx->getText())) {
+               std::cerr << "Line " << ctx->start->getLine() << ": Unknown signal name " << ctx->getText() << std::endl;
+           }
+       }
+    }
+
+
+};
+
+void printTree(antlr4::tree::ParseTree *tree, antlr4::Parser *parser, const std::string &indent = "", bool last = true) {
     std::string marker = last ? "└── " : "├── ";
-    std::cout << indent << marker << tree->getText() << std::endl;
+
+    // Get rule name if it's a rule context
+    std::string ruleInfo = "";
+    if (antlr4::ParserRuleContext *ruleContext = dynamic_cast<antlr4::ParserRuleContext*>(tree)) {
+        int ruleIndex = ruleContext->getRuleIndex();
+        if (ruleIndex >= 0 && parser != nullptr) {
+            ruleInfo = " [" + parser->getRuleNames()[ruleIndex] + "]";
+        }
+    }
+
+    std::cout << indent << marker << tree->getText() << ruleInfo << std::endl;
 
     auto children = tree->children;
-    for (size_t i = 0; i < children.size(); ++i) {
-        printTree(children[i], indent + (last ? "    " : "│   "), i == children.size() - 1);
+    if (children.size() > 0) {
+        for (size_t i = 0; i < children.size(); ++i) {
+            printTree(children[i], parser, indent + (last ? "    " : "│   "), i == children.size() - 1);
+        }
     }
 }
 
 
-int main() {
-    std::ifstream stream;
-    stream.open("../input.txt");
 
-    if (stream.is_open()) {
-        std::cout << "opened" << std::endl;
-    }
+int main() {
+    // std::ifstream stream;
+    // stream.open("../input.txt");
+    //
+    // if (stream.is_open()) {
+    //     std::cout << "opened" << std::endl;
+    // }
 
 
     // First pass - fill declaration table
     auto L1 = new GlobalDeclarationListener();
+    auto L2 = new DeclarationPortsListener();
     {
         std::ifstream stream("../input.txt");
         ANTLRInputStream input(stream);
@@ -99,6 +178,16 @@ int main() {
         CommonTokenStream tokens(&lexer);
         vhdlParser parser(&tokens);
         parser.addParseListener(L1);
+        tree::ParseTree *tree = parser.design_file();
+    }
+
+    {
+        std::ifstream stream("../input.txt");
+        ANTLRInputStream input(stream);
+        vhdlLexer lexer(&input);
+        CommonTokenStream tokens(&lexer);
+        vhdlParser parser(&tokens);
+        parser.addParseListener(L2);
         tree::ParseTree *tree = parser.design_file();
     }
 
@@ -113,6 +202,19 @@ int main() {
         parser.addParseListener(L);
         tree::ParseTree *tree = parser.design_file();
     }
+
+    {
+        std::ifstream stream("../input.txt");
+        ANTLRInputStream input(stream);
+        vhdlLexer lexer(&input);
+        CommonTokenStream tokens(&lexer);
+        vhdlParser parser(&tokens);
+        auto L = new DeclareUseScopedListener(L2);
+        parser.addParseListener(L);
+        tree::ParseTree *tree = parser.design_file();
+        printTree(tree, &parser);
+    }
+
 
 
     return 0;

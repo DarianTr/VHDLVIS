@@ -11,6 +11,8 @@ entity Nand_Gate is
 end Nand_Gate;
 
 architecture rtl of Nand_Gate is
+  signal z_and : std_logic;
   begin
-    z <= x nand y;
+    z_and <= x nand y;
+    z <= z_and;
 end architecture rtl;
