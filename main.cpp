@@ -17,6 +17,22 @@ enum DeclarationTypes {
     Entity,
 };
 
+enum SignalDirection {
+    Outgoing,
+    Ingoing,
+    Bidirectional,
+};
+
+SignalDirection string_to_enum_signal_direction(const std::string &in) {
+    if (in == "in") return Ingoing;
+    if (in == "out") return Outgoing;
+    return Bidirectional;
+}
+
+struct IdentifierAttributes {
+    SignalDirection direction;
+    std::string type;
+};
 
 class GlobalDeclarationListener final : public vhdlBaseListener {
 public:
@@ -67,7 +83,7 @@ public: GlobalDeclarationListener* gdl;
 
 class DeclarationPortsListener final : public vhdlBaseListener {
 public:
-    std::map<std::string, std::set<std::string>> entity_to_identifiers;
+    std::map<std::string, std::map<std::string, IdentifierAttributes>> entity_to_identifiers_with_type;
 private:
     std::string current_entity;
 
@@ -81,9 +97,13 @@ private:
 
     void exitPort_clause(vhdlParser::Port_clauseContext * ctx) override { //port names
         for (const auto & declaration: ctx->port_list()->interface_port_list()->interface_port_declaration()) {
-            for (const auto & iden: declaration->identifier_list()->identifier()) {
-                entity_to_identifiers[current_entity].insert(iden->getText());
+            auto direction = string_to_enum_signal_direction(declaration->signal_mode()->getText());
+            for (int i{}; i < declaration->identifier_list()->identifier().size(); i++) {
+                auto iden = declaration->identifier_list()->identifier()[i]->getText();
+                const auto type = declaration->subtype_indication()->selected_name()[i]->getText();
+                entity_to_identifiers_with_type[current_entity][iden] = {direction, type};
             }
+
         }
     }
 
@@ -103,31 +123,28 @@ private:
     }
 
     void enterArchitecture_body(vhdlParser::Architecture_bodyContext * ctx) override {
-        current_entity = (ctx->identifier().size()) ? ctx->identifier()[0]->getText() : "";
+        current_entity = (!ctx->identifier().empty()) ? ctx->identifier()[0]->getText() : "";
     }
 
     void exitArchitecture_declarative_part(vhdlParser::Architecture_declarative_partContext * ctx) override {
         for (const auto &i: ctx->block_declarative_item()) {
             for (const auto identifier: i->signal_declaration()->identifier_list()->identifier()) {
-                dpl->entity_to_identifiers[current_entity].insert(identifier->getText());
+                dpl->entity_to_identifiers_with_type[current_entity][identifier->getText()] = {Bidirectional, "signal"};
             }
         }
     }
 
     void enterConcurrent_signal_assignment_statement(vhdlParser::Concurrent_signal_assignment_statementContext * ctx) override {
         inside_statement = true;
-        std::cout << "start" << std::endl;
     }
     void exitConcurrent_signal_assignment_statement(vhdlParser::Concurrent_signal_assignment_statementContext * ctx) override {
         inside_statement = false;
-        std::cout << "end" << std::endl;
     }
 
     void exitIdentifier(vhdlParser::IdentifierContext *ctx) override {
-       std::cout << inside_statement << std::endl;
        if (inside_statement) {
-           if (!dpl->entity_to_identifiers[current_entity].count(ctx->getText())) {
-               std::cerr << "Line " << ctx->start->getLine() << ": Unknown signal name " << ctx->getText() << std::endl;
+           if (!dpl->entity_to_identifiers_with_type[current_entity].count(ctx->getText())) {
+               std::cerr << "Line " << ctx->start->getLine() << ": Unknown identifier name " << ctx->getText() << std::endl;
            }
        }
     }
